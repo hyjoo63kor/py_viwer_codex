@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Document viewer icon">
+  <defs>
+    <linearGradient id="page" x1="48" y1="28" x2="208" y2="228" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e8f1ff"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="74" y1="76" x2="181" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1bbf9c"/>
+      <stop offset="1" stop-color="#2f6fed"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="#18202f"/>
+  <path d="M66 28h86l50 50v132c0 10-8 18-18 18H66c-10 0-18-8-18-18V46c0-10 8-18 18-18z" fill="url(#page)"/>
+  <path d="M151 28v38c0 8 7 15 15 15h36z" fill="#b9d4ff"/>
+  <path d="M82 70h52" stroke="#7c8aa5" stroke-width="10" stroke-linecap="round"/>
+  <path d="M82 102h92" stroke="#a4afc2" stroke-width="10" stroke-linecap="round"/>
+  <path d="M82 134h46" stroke="#a4afc2" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="119" cy="139" r="43" fill="none" stroke="url(#lens)" stroke-width="18"/>
+  <path d="M151 171l35 35" stroke="#1bbf9c" stroke-width="20" stroke-linecap="round"/>
+  <path d="M100 139l14 14 30-36" fill="none" stroke="#2f6fed" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

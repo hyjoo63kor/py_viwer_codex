@@ -1,6 +1,6 @@
-# Image / SVG / PDF Viewer
+# Image / SVG / PDF / Markdown Viewer
 
-PySide6로 만든 간단한 데스크톱 뷰어입니다. PNG, JPG, SVG, PDF 파일을 열어서 볼 수 있고, 마우스와 상단 패널 버튼으로 확대/축소와 이동을 할 수 있습니다.
+PySide6로 만든 간단한 데스크톱 뷰어입니다. PNG, JPG, SVG, PDF, Markdown 파일을 열어서 볼 수 있고, 마우스와 상단 패널 버튼으로 확대/축소와 이동을 할 수 있습니다.
 
 빌드 결과 실행 파일 이름은 `svgvv.exe`입니다.
 
@@ -9,6 +9,7 @@ PySide6로 만든 간단한 데스크톱 뷰어입니다. PNG, JPG, SVG, PDF 파
 - PNG, JPG, JPEG 이미지 열기
 - SVG 파일 열기
 - PDF 파일 열기
+- Markdown(.md) 파일 미리보기
 - 파일 열기 버튼 또는 Drag & Drop으로 로드
 - 마우스 휠로 Zoom
 - 상단 `+`, `-`, `Reset` 버튼으로 Zoom
@@ -16,8 +17,11 @@ PySide6로 만든 간단한 데스크톱 뷰어입니다. PNG, JPG, SVG, PDF 파
 - 마우스 드래그로 Pan
 - 상단 `↑`, `↓`, `←`, `→` 버튼으로 Pan
 - PDF 페이지 `Prev`, `Next` 이동
+- Markdown 스크롤 페이지 `Prev`, `Next` 이동
+- PDF와 Markdown에서 `PgUp`, `PgDn`으로 이전/다음 페이지 이동
 - SVG는 벡터 렌더링으로 확대 시 선명도 유지
 - PDF는 `QPdfView` 기반 표시로 확대 시 선명도 유지
+- Markdown은 텍스트 폰트 크기를 직접 조정해서 확대 시 선명도 유지
 
 ## 프로젝트 구조
 
@@ -28,6 +32,9 @@ PySide6로 만든 간단한 데스크톱 뷰어입니다. PNG, JPG, SVG, PDF 파
 ├── README.md
 ├── src/
 │   └── my_app/
+│       ├── assets/
+│       │   ├── app_icon.ico
+│       │   └── app_icon.svg
 │       ├── __init__.py
 │       ├── clean.py
 │       └── main.py
@@ -76,12 +83,13 @@ uv run python -m my_app.main
 
 ## 사용 방법
 
-1. `Open` 버튼을 눌러 PNG, JPG, SVG, PDF 파일을 선택합니다.
+1. `Open` 버튼을 눌러 PNG, JPG, SVG, PDF, Markdown 파일을 선택합니다.
 2. 파일을 앱 창 위로 Drag & Drop해도 열 수 있습니다.
 3. 마우스 휠 또는 상단 `+`, `-` 버튼으로 확대/축소합니다.
 4. `Reset` 버튼으로 Zoom을 100%로 되돌립니다.
 5. 화면을 마우스로 드래그하거나 `↑`, `↓`, `←`, `→` 버튼으로 이동합니다.
-6. PDF 파일은 상단의 `Prev`, `Next` 버튼으로 페이지를 이동합니다.
+6. PDF 파일은 상단의 `Prev`, `Next` 버튼 또는 `PgUp`, `PgDn`으로 페이지를 이동합니다.
+7. Markdown 파일은 상단의 `Prev`, `Next` 버튼 또는 `PgUp`, `PgDn`으로 화면 단위 이동합니다.
 
 ## 실행 파일 빌드
 
@@ -147,7 +155,8 @@ uv run pytest
 
 ## 참고
 
-- 앱 창 제목은 `Image / SVG / PDF Viewer`입니다.
+- 앱 창 제목은 `Image / SVG / PDF / Markdown Viewer`입니다.
+- 앱 아이콘 원본은 `src/my_app/assets/app_icon.svg`이고, Windows 실행 파일용 아이콘은 `src/my_app/assets/app_icon.ico`입니다.
 - PyInstaller 결과 파일명은 `app.spec`의 `name="svgvv"` 설정으로 정해집니다.
 - PDF 표시는 PySide6의 `QPdfView`를 사용합니다.
 - SVG 표시는 `QGraphicsSvgItem`을 사용합니다.

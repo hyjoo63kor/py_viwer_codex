@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from enum import Enum
+from importlib.resources import files
 from pathlib import Path
 from typing import Final
 
@@ -10,15 +11,19 @@ from PySide6.QtGui import (
     QDragEnterEvent,
     QDragMoveEvent,
     QDropEvent,
+    QIcon,
+    QKeyEvent,
     QMouseEvent,
     QPainter,
     QPixmap,
+    QTextCursor,
     QWheelEvent,
 )
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import (
+    QAbstractScrollArea,
     QApplication,
     QFileDialog,
     QGraphicsItem,
@@ -31,20 +36,28 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QStackedWidget,
+    QTextBrowser,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
-APP_NAME: Final = "Image / SVG / PDF Viewer"
-SUPPORTED_SUFFIXES: Final[frozenset[str]] = frozenset({".png", ".jpg", ".jpeg", ".pdf", ".svg"})
+from my_app import __version__
+
+APP_NAME: Final = f"Image / SVG / PDF / Markdown Viewer ver. {__version__}"
+APP_ICON_RESOURCE: Final = "assets/app_icon.svg"
+SUPPORTED_SUFFIXES: Final[frozenset[str]] = frozenset(
+    {".png", ".jpg", ".jpeg", ".pdf", ".svg", ".md"}
+)
 IMAGE_SUFFIXES: Final[frozenset[str]] = frozenset({".png", ".jpg", ".jpeg"})
+MARKDOWN_SUFFIXES: Final[frozenset[str]] = frozenset({".md"})
 MIN_ZOOM: Final = 0.1
 MAX_ZOOM: Final = 8.0
 ZOOM_STEP: Final = 1.15
 PAN_STEP: Final = 80
 TOOLBAR_HEIGHT: Final = 48
 BUTTON_HEIGHT: Final = 28
+MARKDOWN_BASE_FONT_SIZE: Final = 11.0
 
 
 def _toolbar_gap(width: int) -> QWidget:
@@ -57,6 +70,7 @@ class DocumentKind(Enum):
     IMAGE = "image"
     SVG = "svg"
     PDF = "pdf"
+    MARKDOWN = "markdown"
 
 
 class ViewerScene(QGraphicsScene):
@@ -128,6 +142,7 @@ class DocumentView(QGraphicsView):
 class PdfDocumentView(QPdfView):
     file_dropped = Signal(Path)
     zoom_requested = Signal(float)
+    page_requested = Signal(int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -144,6 +159,17 @@ class PdfDocumentView(QPdfView):
             return
         self.zoom_requested.emit(ZOOM_STEP**steps)
         event.accept()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_PageUp:
+            self.page_requested.emit(-1)
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_PageDown:
+            self.page_requested.emit(1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -193,10 +219,72 @@ class PdfDocumentView(QPdfView):
         event.acceptProposedAction()
 
 
+class MarkdownDocumentView(QTextBrowser):
+    file_dropped = Signal(Path)
+    zoom_requested = Signal(float)
+    page_requested = Signal(int)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self.setOpenExternalLinks(True)
+        self.setReadOnly(True)
+        self.setStyleSheet(
+            """
+            QTextBrowser {
+                background: #f7f7f7;
+                color: #1f2328;
+                padding: 28px;
+            }
+            """
+        )
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        steps = event.angleDelta().y() / 120.0
+        if steps == 0:
+            event.ignore()
+            return
+        self.zoom_requested.emit(ZOOM_STEP**steps)
+        event.accept()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_PageUp:
+            self.page_requested.emit(-1)
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_PageDown:
+            self.page_requested.emit(1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if _path_from_drop(event) is not None:
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:
+        if _path_from_drop(event) is not None:
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        path = _path_from_drop(event)
+        if path is None:
+            super().dropEvent(event)
+            return
+        self.file_dropped.emit(path)
+        event.acceptProposedAction()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
+        self.setWindowIcon(app_icon())
         self.resize(1100, 800)
         self.setAcceptDrops(True)
 
@@ -208,9 +296,21 @@ class MainWindow(QMainWindow):
         self._pdf_view = PdfDocumentView()
         self._pdf_view.file_dropped.connect(self.load_file)
         self._pdf_view.zoom_requested.connect(lambda factor: self.zoom_by(factor))
+        self._pdf_view.page_requested.connect(self._move_page)
+        self._markdown_view = MarkdownDocumentView()
+        self._markdown_view.file_dropped.connect(self.load_file)
+        self._markdown_view.zoom_requested.connect(lambda factor: self.zoom_by(factor))
+        self._markdown_view.page_requested.connect(self._move_page)
+        self._markdown_view.verticalScrollBar().valueChanged.connect(
+            lambda _value: self._update_controls()
+        )
+        self._markdown_view.horizontalScrollBar().valueChanged.connect(
+            lambda _value: self._update_controls()
+        )
         self._stack = QStackedWidget()
         self._stack.addWidget(self._view)
         self._stack.addWidget(self._pdf_view)
+        self._stack.addWidget(self._markdown_view)
 
         self._item: QGraphicsItem | None = None
         self._kind: DocumentKind | None = None
@@ -306,7 +406,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
-        empty = self._scene.addText("Open or drag a PNG, JPG, PDF, or SVG file")
+        empty = self._scene.addText("Open or drag a PNG, JPG, PDF, SVG, or MD file")
         empty.setDefaultTextColor(Qt.GlobalColor.white)
         empty.setPos(230, 230)
         self._scene.setSceneRect(QRectF(0, 0, 800, 500))
@@ -316,7 +416,7 @@ class MainWindow(QMainWindow):
             self,
             "Open file",
             "",
-            "Supported files (*.png *.jpg *.jpeg *.pdf *.svg)",
+            "Supported files (*.png *.jpg *.jpeg *.pdf *.svg *.md)",
         )
         if filename:
             self.load_file(Path(filename))
@@ -342,6 +442,8 @@ class MainWindow(QMainWindow):
             self._load_svg(path)
         elif suffix == ".pdf":
             self._load_pdf(path)
+        elif suffix in MARKDOWN_SUFFIXES:
+            self._load_markdown(path)
 
         self._fit_current_item()
         self._update_controls()
@@ -359,21 +461,51 @@ class MainWindow(QMainWindow):
         self._view.centerOn(self._scene.sceneRect().center())
 
     def pan_by(self, dx: int, dy: int) -> None:
-        active_view = self._pdf_view if self._kind == DocumentKind.PDF else self._view
-        active_view.horizontalScrollBar().setValue(active_view.horizontalScrollBar().value() + dx)
-        active_view.verticalScrollBar().setValue(active_view.verticalScrollBar().value() + dy)
+        if self._kind == DocumentKind.PDF:
+            self._pan_scroll_area(self._pdf_view, dx, dy)
+        elif self._kind == DocumentKind.MARKDOWN:
+            self._pan_scroll_area(self._markdown_view, dx, dy)
+        else:
+            self._pan_scroll_area(self._view, dx, dy)
 
     def previous_page(self) -> None:
-        if self._pdf_document is None or self._pdf_page <= 0:
+        if self._kind == DocumentKind.MARKDOWN:
+            self._scroll_markdown_page(-1)
             return
-        self._pdf_page -= 1
-        self._jump_to_pdf_page()
+        if self._pdf_document is not None and self._pdf_page > 0:
+            self._pdf_page -= 1
+            self._jump_to_pdf_page()
 
     def next_page(self) -> None:
-        if self._pdf_document is None or self._pdf_page >= self._pdf_document.pageCount() - 1:
+        if self._kind == DocumentKind.MARKDOWN:
+            self._scroll_markdown_page(1)
             return
-        self._pdf_page += 1
-        self._jump_to_pdf_page()
+        if self._pdf_document is not None and self._pdf_page < self._pdf_document.pageCount() - 1:
+            self._pdf_page += 1
+            self._jump_to_pdf_page()
+
+    def _move_page(self, direction: int) -> None:
+        if direction < 0:
+            self.previous_page()
+            return
+        self.next_page()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_PageUp and self._kind in {
+            DocumentKind.PDF,
+            DocumentKind.MARKDOWN,
+        }:
+            self.previous_page()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_PageDown and self._kind in {
+            DocumentKind.PDF,
+            DocumentKind.MARKDOWN,
+        }:
+            self.next_page()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if _path_from_drop(event) is not None:
@@ -432,14 +564,29 @@ class MainWindow(QMainWindow):
         self._jump_to_pdf_page()
         self._update_controls()
 
+    def _load_markdown(self, path: Path) -> None:
+        self._kind = DocumentKind.MARKDOWN
+        self._stack.setCurrentWidget(self._markdown_view)
+        self._markdown_view.setMarkdown(_read_markdown(path))
+        self._markdown_view.moveCursor(QTextCursor.MoveOperation.Start)
+        self._apply_markdown_zoom()
+
     def _apply_zoom(self) -> None:
         if self._kind == DocumentKind.PDF:
             self._pdf_view.setZoomMode(QPdfView.ZoomMode.Custom)
             self._pdf_view.setZoomFactor(self._zoom)
+        elif self._kind == DocumentKind.MARKDOWN:
+            self._apply_markdown_zoom()
         else:
             self._view.resetTransform()
             self._view.scale(self._zoom, self._zoom)
         self._update_controls()
+
+    def _apply_markdown_zoom(self) -> None:
+        font = self._markdown_view.font()
+        font.setPointSizeF(MARKDOWN_BASE_FONT_SIZE * self._zoom)
+        self._markdown_view.setFont(font)
+        self._markdown_view.document().setDefaultFont(font)
 
     def _jump_to_pdf_page(self) -> None:
         if self._pdf_document is None:
@@ -461,6 +608,7 @@ class MainWindow(QMainWindow):
 
     def _clear_document(self) -> None:
         self._scene.clear()
+        self._markdown_view.clear()
         self._item = None
         self._kind = None
         if self._pdf_document is not None:
@@ -476,13 +624,31 @@ class MainWindow(QMainWindow):
     def _update_controls(self) -> None:
         self._zoom_label.setText(f"{round(self._zoom * 100)}%")
         is_pdf = self._pdf_document is not None
+        is_markdown = self._kind == DocumentKind.MARKDOWN
         page_count = self._pdf_document.pageCount() if self._pdf_document is not None else 0
-        self._prev_page_button.setVisible(is_pdf)
-        self._next_page_button.setVisible(is_pdf)
-        self._page_label.setVisible(is_pdf)
+        has_page_controls = is_pdf or is_markdown
+        self._prev_page_button.setVisible(has_page_controls)
+        self._next_page_button.setVisible(has_page_controls)
+        self._page_label.setVisible(has_page_controls)
+        if is_markdown:
+            scrollbar = self._markdown_view.verticalScrollBar()
+            self._prev_page_button.setEnabled(scrollbar.value() > scrollbar.minimum())
+            self._next_page_button.setEnabled(scrollbar.value() < scrollbar.maximum())
+            self._page_label.setText("Markdown")
+            return
         self._prev_page_button.setEnabled(is_pdf and self._pdf_page > 0)
         self._next_page_button.setEnabled(is_pdf and self._pdf_page < page_count - 1)
         self._page_label.setText(f"Page {self._pdf_page + 1} / {page_count}" if is_pdf else "")
+
+    def _scroll_markdown_page(self, direction: int) -> None:
+        scrollbar = self._markdown_view.verticalScrollBar()
+        page_step = max(1, self._markdown_view.viewport().height() - 32)
+        scrollbar.setValue(scrollbar.value() + direction * page_step)
+        self._update_controls()
+
+    def _pan_scroll_area(self, area: QAbstractScrollArea, dx: int, dy: int) -> None:
+        area.horizontalScrollBar().setValue(area.horizontalScrollBar().value() + dx)
+        area.verticalScrollBar().setValue(area.verticalScrollBar().value() + dy)
 
     def _show_error(self, message: str) -> None:
         QTimer.singleShot(0, lambda: QMessageBox.critical(self, APP_NAME, message))
@@ -500,8 +666,28 @@ def _path_from_drop(
     return path
 
 
+def _read_markdown(path: Path) -> str:
+    data = path.read_bytes()
+    for encoding in ("utf-8-sig", "utf-8", "cp949"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
 def build_app(argv: list[str] | None = None) -> QApplication:
-    return QApplication(sys.argv if argv is None else argv)
+    app = QApplication(sys.argv if argv is None else argv)
+    app.setWindowIcon(app_icon())
+    return app
+
+
+def app_icon_path() -> Path:
+    return Path(str(files("my_app").joinpath(APP_ICON_RESOURCE)))
+
+
+def app_icon() -> QIcon:
+    return QIcon(str(app_icon_path()))
 
 
 def main() -> int:
